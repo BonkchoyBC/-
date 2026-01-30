@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>环境数据监控系统</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="fun.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header id="pageHeader">
+            <h1><i class="fas fa-database"></i> 环境数据监控系统</h1>
+            <p class="subtitle">自动读取并解析 data.csv 文件，实时监控环境参数</p>
+            <div id="alertIndicator" style="display: none;"></div>
+        </header>
+        
+        <div class="status-bar">
+            <div class="status-item">
+                <span class="status-dot active" id="serverStatus"></span>
+                <span>服务器状态: <span id="serverStatusText">连接中...</span></span>
+            </div>
+            <div class="status-item">
+                <i class="fas fa-clock"></i>
+                <span>最后更新: <span id="lastUpdate">-</span></span>
+            </div>
+            <div class="status-item">
+                <i class="fas fa-file-alt"></i>
+                <span>数据记录: <span id="totalRecords">0</span> 条</span>
+            </div>
+            <div class="status-item">
+                <i class="fas fa-exclamation-triangle"></i>
+                <span>异常状态: <span id="alertCount">0</span> 个</span>
+            </div>
+            <div class="status-item">
+                <button class="btn btn-success" onclick="loadData()">
+                    <i class="fas fa-sync-alt"></i> 刷新数据
+                </button>
+                <button class="btn" onclick="showRawData()">
+                    <i class="fas fa-code"></i> 查看原始数据
+                </button>
+            </div>
+        </div>
+        
+        <div class="main-content">
+            <!-- 数据概览 -->
+            <div class="data-section full-width">
+                <div class="section-title">
+                    <h2><i class="fas fa-chart-line"></i> 数据概览</h2>
+                    <div class="timestamp" id="overviewTime"></div>
+                </div>
+                
+                <div class="data-grid" id="overviewGrid">
+                    <!-- 动态生成5个概览卡片 -->
+                </div>
+                
+                <div class="server-info">
+                    <p><i class="fas fa-info-circle"></i> 数据来源: 自动读取同目录下的 <code>data.csv</code> 文件</p>
+                    <p><i class="fas fa-cog"></i> 阈值配置: <code>range.config</code> (可动态调整)</p>
+                </div>
+                
+                <!-- 异常信息显示区域 -->
+                <div id="alertDetails" style="display: none;"></div>
+                
+                <!-- 数据加载进度 -->
+                <div class="progress-bar">
+                    <div class="progress-fill" id="dataProgress" style="width: 0%"></div>
+                </div>
+                <div style="text-align: center; margin-top: 10px; font-size: 0.9rem; color: #7f8c8d;">
+                    数据加载进度
+                </div>
+            </div>
+            
+            <!-- 数据趋势图 -->
+            <div class="data-section full-width">
+                <div class="section-title">
+                    <h2><i class="fas fa-chart-bar"></i> 数据趋势图</h2>
+                    <div>
+                        <select id="chartSelect" onchange="updateChart()" style="padding: 8px; border-radius: 4px; border: 1px solid #ddd; margin-right: 10px;">
+                        <option value="temperature">温度趋势</option>
+                        <option value="illumination">光照强度趋势</option>
+                        <option value="humidity">湿度趋势</option>
+                        <option value="ph">pH值趋势</option>
+                        <option value="microbial">微生物密度趋势</option>
+                        <option value="turbidity">浊度趋势</option>
+                        <option value="COD">化学需氧量趋势</option>
+                        <option value="DO">溶解氧趋势</option>
+                        <option value="EC">电导率趋势</option>
+                    </select>
+                        <button class="btn" onclick="exportChart()">
+                            <i class="fas fa-download"></i> 导出图表
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="chart-container">
+                    <canvas id="dataChart"></canvas>
+                </div>
+                
+                <div class="threshold-info" id="chartThresholdInfo">
+                    <!-- 显示当前图表参数的阈值信息 -->
+                </div>
+            </div>
+            
+            <!-- 数据表格 -->
+            <div class="data-section full-width">
+                <div class="section-title">
+                    <h2><i class="fas fa-table"></i> 数据表格</h2>
+                    <div>
+                        <button class="btn" onclick="toggleDataView()">
+                            <i class="fas fa-exchange-alt"></i> 切换视图
+                        </button>
+                        <button class="btn btn-success" onclick="exportData()">
+                            <i class="fas fa-download"></i> 导出数据
+                        </button>
+                        <button class="btn btn-warning" onclick="highlightAlerts()">
+                            <i class="fas fa-search"></i> 高亮异常
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="loading" class="loading">
+                    <div class="loading-spinner"></div>
+                    <p>正在加载数据...</p>
+                </div>
+                
+                <div id="errorMessage" class="error" style="display: none;"></div>
+                
+                <div id="dataTableContainer" style="display: none;">
+                    <!-- 分页控件 -->
+                    <div class="pagination-controls">
+                        <button class="btn" onclick="prevPage()" id="prevBtn" disabled>
+                            <i class="fas fa-chevron-left"></i> 上一页
+                        </button>
+                        <span id="pageInfo">第 1 页，共 1 页</span>
+                        <button class="btn" onclick="nextPage()" id="nextBtn" disabled>
+                            下一页 <i class="fas fa-chevron-right"></i>
+                        </button>
+                        <span style="margin-left: 20px;">每页显示: 
+                            <select id="pageSizeSelect" onchange="changePageSize()" style="padding: 5px; border-radius: 4px; border: 1px solid #ddd;">
+                                <option value="10">10条</option>
+                                <option value="20">20条</option>
+                                <option value="50">50条</option>
+                            </select>
+                        </span>
+                    </div>
+                    
+                    <table id="dataTable">
+                        <thead>
+                            <tr>
+                                <th>序号</th>
+                                <th>时间</th>
+                                <th>光照强度 (lux)</th>
+                                <th>温度 (℃)</th>
+                                <th>湿度 (%)</th>
+                                <th>pH值</th>
+                                <th>微生物密度 (CFU/mL)</th>
+                                <th>浊度 (NTU)</th>
+                                <th>化学需氧量 (mg/L)</th>
+                                <th>溶解氧 (mg/L)</th>
+                                <th>电导率 (μS/cm)</th>
+                                <th>状态评估</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dataTableBody">
+                            <!-- 数据行将通过JavaScript动态添加 -->
+                        </tbody>
+                    </table>
+                    
+                    <!-- 分页信息 -->
+                    <div class="pagination-info">
+                        显示 <span id="displayStart">1</span> - <span id="displayEnd">10</span> 条，共 <span id="totalDisplay">0</span> 条数据
+                    </div>
+                </div>
+                
+                <div id="rawDataView" class="raw-data" style="display: none; margin-top: 20px;">
+                    <!-- 原始数据显示区域 -->
+                </div>
+            </div>
+            
+            <!-- 数据统计 -->
+            <div class="data-section">
+                <div class="section-title">
+                    <h2><i class="fas fa-calculator"></i> 数据统计</h2>
+                </div>
+                
+                <div id="statisticsContainer">
+                    <!-- 动态生成统计数据 -->
+                </div>
+            </div>
+            
+            <!-- 阈值配置信息 -->
+            <div class="data-section">
+                <div class="section-title">
+                    <h2><i class="fas fa-sliders-h"></i> 阈值配置</h2>
+                    <button class="btn" onclick="loadConfig()">
+                        <i class="fas fa-redo"></i> 刷新配置
+                    </button>
+                </div>
+                
+                <div id="configContainer">
+                    <!-- 动态显示阈值配置 -->
+                </div>
+            </div>
+        </div>
+        
+        <footer>
+            <p>环境数据监控系统 v2.0 | Node.js服务器自动读取data.csv文件</p>
+            <p>服务器运行在: <span id="serverUrl"></span> | 数据文件: data.csv | 配置文件: range.config</p>
+        </footer>
+    </div>
+
+    <!-- Font Awesome图标 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</body>
+</html>
